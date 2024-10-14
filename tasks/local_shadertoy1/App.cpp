@@ -76,7 +76,7 @@ App::App()
 
 
   // TODO: Initialize any additional resources you require here!
-  etna::create_program("local_shadertoy1", {LOCAL_SHADERTOY_SHADERS_ROOT "toy.comp.spv"});
+  etna::create_program("local_shadertoy1", {LOCAL_SHADERTOY1_SHADERS_ROOT "toy.comp.spv"});
   pipeline = etna::get_context().getPipelineManager().createComputePipeline("local_shadertoy1", {});
   sampler = etna::Sampler(etna::Sampler::CreateInfo{.name = "Spikeball evolution"});
   shader_image = etna::get_context().createImage(etna::Image::CreateInfo{
