@@ -53,7 +53,7 @@ public:
 
   etna::VertexByteStreamFormatDescription getVertexFormatDescription();
 
-protected:
+private:
   std::optional<tinygltf::Model> loadModel(std::filesystem::path path);
 
   struct ProcessedInstances
@@ -85,7 +85,7 @@ protected:
   ProcessedMeshes bakeMeshes(const tinygltf::Model& model) const;
   void uploadData(std::span<const Vertex> vertices, std::span<const std::uint32_t>);
 
-protected:
+private:
   tinygltf::TinyGLTF loader;
   std::unique_ptr<etna::OneShotCmdMgr> oneShotCommands;
   etna::BlockingTransferHelper transferHelper;

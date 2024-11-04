@@ -389,8 +389,8 @@ SceneManager::ProcessedMeshes SceneManager::bakeMeshes(const tinygltf::Model& mo
   auto data = model.buffers[0].data.data();
   auto indices_pointer = reinterpret_cast<const uint32_t*>(data + model.bufferViews[0].byteLength);
   auto vertices_pointer = reinterpret_cast<const Vertex*>(data);
-  result.indices = std::vector(indices_pointer, indices_pointer + model.bufferViews[0].byteLength / sizeof(uint32_t));
-  result.vertices = std::vector(vertices_pointer, vertices_pointer + model.bufferViews[1].byteLength / sizeof(Vertex));
+  result.indices = std::vector(indices_pointer, indices_pointer + model.bufferViews[1].byteLength / sizeof(uint32_t));
+  result.vertices = std::vector(vertices_pointer, vertices_pointer + model.bufferViews[0].byteLength / sizeof(Vertex));
 
   return result;
 }
