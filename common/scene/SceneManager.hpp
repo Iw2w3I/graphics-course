@@ -35,6 +35,7 @@ public:
   SceneManager();
 
   void selectScene(std::filesystem::path path);
+  void selectBakerScene(std::filesystem::path path);
 
   // Every instance is a mesh drawn with a certain transform
   // NOTE: maybe you can pass some additional data through unused matrix entries?
@@ -52,7 +53,7 @@ public:
 
   etna::VertexByteStreamFormatDescription getVertexFormatDescription();
 
-private:
+protected:
   std::optional<tinygltf::Model> loadModel(std::filesystem::path path);
 
   struct ProcessedInstances
@@ -81,9 +82,10 @@ private:
     std::vector<Mesh> meshes;
   };
   ProcessedMeshes processMeshes(const tinygltf::Model& model) const;
+  ProcessedMeshes bakeMeshes(const tinygltf::Model& model) const;
   void uploadData(std::span<const Vertex> vertices, std::span<const std::uint32_t>);
 
-private:
+protected:
   tinygltf::TinyGLTF loader;
   std::unique_ptr<etna::OneShotCmdMgr> oneShotCommands;
   etna::BlockingTransferHelper transferHelper;
