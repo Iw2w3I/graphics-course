@@ -208,17 +208,16 @@ private:
     return model;
   };
 
-  static std::uint32_t encode_normal(glm::vec3 normal)
-  {
-    const std::int32_t x = static_cast<std::int32_t>(normal.x * 32767.0f);
-    const std::int32_t y = static_cast<std::int32_t>(normal.y * 32767.0f);
+uint32_t encode_normal(glm::vec4 normal) const
+{
+  glm::float32_t scale = 127;
+  int32_t x = (std::lround(normal.x * scale) & 0x000000ff);
+  int32_t y = ((std::lround(normal.y * scale) & 0x000000ff) << 8);
+  int32_t z = ((std::lround(normal.z * scale) & 0x000000ff) << 16);
+  int32_t w = ((std::lround(normal.w * scale) & 0x000000ff) << 24);
 
-    const std::uint32_t sign = normal.z >= 0 ? 0 : 1;
-    const std::uint32_t sx = static_cast<std::uint32_t>(x & 0xfffe) | sign;
-    const std::uint32_t sy = static_cast<std::uint32_t>(y & 0xffff) << 16;
-
-    return sx | sy;
-  }
+  return std::bit_cast<uint32_t>(x | y | z | w);
+}
 
   ProcessedMeshes processMeshes(const tinygltf::Model& model) const
   {
@@ -373,7 +372,7 @@ private:
           // NOTE: if tangents are not available, one could use http://mikktspace.com/
           // NOTE: if normals are not available, reconstructing them is possible but will look ugly
           glm::vec3 normal{0};
-          glm::vec3 tangent{0};
+          glm::vec4 tangent{0};
           glm::vec2 texcoord{0};
           std::memcpy(&pos, ptrs[1], sizeof(pos));
 
@@ -387,7 +386,7 @@ private:
             std::memcpy(&texcoord, ptrs[4], sizeof(texcoord));
 
 
-          vtx.positionAndNormal = glm::vec4(pos, std::bit_cast<float>(encode_normal(normal)));
+          vtx.positionAndNormal = glm::vec4(pos, std::bit_cast<float>(encode_normal(glm::vec4(normal, 0))));
           vtx.texCoordAndTangentAndPadding =
             glm::vec4(texcoord, std::bit_cast<float>(encode_normal(tangent)), 0);
 
