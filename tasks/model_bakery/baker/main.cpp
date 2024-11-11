@@ -35,18 +35,18 @@ public:
 
     model.bufferViews.clear();
 
-    auto& bufferView1 = model.bufferViews.emplace_back();
-    bufferView1.buffer = 0;
-    bufferView1.byteLength = vertsSize;
-    bufferView1.byteOffset = 0;
-    bufferView1.byteStride = sizeof(Vertex);
-    bufferView1.target = TINYGLTF_TARGET_ARRAY_BUFFER;
+    auto& bufferViewInds = model.bufferViews.emplace_back();
+    bufferViewInds.buffer = 0;
+    bufferViewInds.byteLength = indsSize;
+    bufferViewInds.byteOffset = 0;
+    bufferViewInds.target = TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER;
 
-    auto& bufferView2 = model.bufferViews.emplace_back();
-    bufferView2.buffer = 0;
-    bufferView2.byteLength = indsSize;
-    bufferView2.byteOffset = vertsSize;
-    bufferView2.target = TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER;
+    auto& bufferViewVerts = model.bufferViews.emplace_back();
+    bufferViewVerts.buffer = 0;
+    bufferViewVerts.byteLength = vertsSize;
+    bufferViewVerts.byteOffset = indsSize;
+    bufferViewVerts.byteStride = sizeof(Vertex);
+    bufferViewVerts.target = TINYGLTF_TARGET_ARRAY_BUFFER;
 
     bakeGLTF(model, relems, meshes);
 
@@ -208,16 +208,16 @@ private:
     return model;
   };
 
-uint32_t encode_normal(glm::vec4 normal) const
-{
-  glm::float32_t scale = 127;
-  int32_t x = (std::lround(normal.x * scale) & 0x000000ff);
-  int32_t y = ((std::lround(normal.y * scale) & 0x000000ff) << 8);
-  int32_t z = ((std::lround(normal.z * scale) & 0x000000ff) << 16);
-  int32_t w = ((std::lround(normal.w * scale) & 0x000000ff) << 24);
+  uint32_t encode_normal(glm::vec4 normal) const
+  {
+    glm::float32_t scale = 127;
+    int32_t x = (std::lround(normal.x * scale) & 0x000000ff);
+    int32_t y = ((std::lround(normal.y * scale) & 0x000000ff) << 8);
+    int32_t z = ((std::lround(normal.z * scale) & 0x000000ff) << 16);
+    int32_t w = ((std::lround(normal.w * scale) & 0x000000ff) << 24);
 
-  return std::bit_cast<uint32_t>(x | y | z | w);
-}
+    return std::bit_cast<uint32_t>(x | y | z | w);
+  }
 
   ProcessedMeshes processMeshes(const tinygltf::Model& model) const
   {
