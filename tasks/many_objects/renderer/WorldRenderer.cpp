@@ -32,10 +32,12 @@ void WorldRenderer::allocateResources(glm::uvec2 swapchain_resolution)
     [&ctx, maxDrawnInstances = maxDrawnInstances](std::size_t i) {
       return ctx.createBuffer(etna::Buffer::CreateInfo{
         .size = maxDrawnInstances * sizeof(glm::mat4x4),
-        .bufferUsage = vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eStorageBuffer,
+        .bufferUsage = vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer,
         .memoryUsage = VMA_MEMORY_USAGE_CPU_TO_GPU,
         .name = fmt::format("instanceMatrix{}", i)});
     });
+
+  mModelsCount.resize(maxDrawnInstances, 0);
 }
 
 void WorldRenderer::loadScene(std::filesystem::path path)
@@ -107,7 +109,7 @@ void WorldRenderer::renderScene(
   auto& mModelsBuffer = mModels->get();
   mModelsBuffer.map();
   glm::mat4x4* mModelsVec = std::bit_cast<glm::mat4x4*>(mModelsBuffer.data());
-  std::size_t id = 0;
+  std::size_t mModelsId = 0;
 
   auto instanceMeshes = sceneMgr->getInstanceMeshes();
   auto instanceMatrices = sceneMgr->getInstanceMatrices();
@@ -121,10 +123,9 @@ void WorldRenderer::renderScene(
     const auto meshIdx = instanceMeshes[instIdx];
     for (std::size_t j = 0; j < meshes[meshIdx].relemCount; ++j) {
       const auto relemIdx = meshes[meshIdx].firstRelem + j;
-      const auto& relem = relems[relemIdx];
       if (!frustumCulled(bounds[meshIdx], glob_tm * mModel)) {
-        mModelsVec[id++] = mModel;
-        ++mModelsCount[relem];
+        mModelsVec[mModelsId++] = mModel;
+        ++mModelsCount[relemIdx];
       }
     }
   }
@@ -144,12 +145,15 @@ void WorldRenderer::renderScene(
       pipeline_layout, vk::ShaderStageFlagBits::eVertex, 0, {pushConst2M});
 
   uint32_t offset = 0;
-  for (const auto& [relem, count]: mModelsCount) {
-    cmd_buf.drawIndexed(relem.indexCount, count, relem.indexOffset, relem.vertexOffset, offset);
-    offset += count;
+  for (std::size_t relemIdx = 0; relemIdx < mModelsCount.size(); ++relemIdx) {
+    if (mModelsCount[relemIdx] != 0) {
+      cmd_buf.drawIndexed(relems[relemIdx].indexCount, mModelsCount[relemIdx],
+                          relems[relemIdx].indexOffset, relems[relemIdx].vertexOffset, offset);
+      offset += mModelsCount[relemIdx];
+      mModelsCount[relemIdx] = 0;
+    }
   }
-  mModelsCount.clear();
-  // std::cout << offset << std::endl;
+  // std::cout << offset << std::endl; // total number of drawn instances
 }
 
 void WorldRenderer::renderWorld(
@@ -188,5 +192,10 @@ bool WorldRenderer::frustumCulled(const std::pair<glm::vec3, glm::vec3> bound, c
       return false;
     }
   }
-  return true;
+  glm::vec3 center = (bound.first + bound.second) / 2.0f; // helps with huge objects
+  glm::vec4 pos = globalTransform * glm::vec4(center.x, center.y, center.z, 1.0f);
+  bool onScreen = pos.x >= -pos.w - leeway && pos.x <= pos.w + leeway &&
+                  pos.y >= -pos.w - leeway && pos.y <= pos.w + leeway &&
+                  pos.z >= -pos.w - leeway && pos.z <= pos.w + leeway;
+  return !onScreen;
 }

@@ -48,9 +48,8 @@ private:
   glm::mat4x4 worldViewProj;
   glm::mat4x4 lightMatrix;
   std::optional<etna::GpuSharedResource<etna::Buffer>> mModels = std::nullopt;
+  std::vector<uint32_t> mModelsCount;
   std::size_t maxDrawnInstances;
-
-  std::map<RenderElement, uint32_t> mModelsCount;
 
   etna::GraphicsPipeline staticMeshPipeline{};
 
