@@ -86,7 +86,7 @@ App::App()
   pipeline = etna::get_context().getPipelineManager().createGraphicsPipeline("local_shadertoy2",
     etna::GraphicsPipeline::CreateInfo {
       .fragmentShaderOutput = {
-        .colorAttachmentFormats = {vk::Format::eB8G8R8A8Srgb}
+        .colorAttachmentFormats = {vkWindow->getCurrentFormat()}
       }
     });
   etna::create_program("local_shadertoy2_textures", {LOCAL_SHADERTOY2_SHADERS_ROOT "toy.vert.spv",
@@ -94,14 +94,14 @@ App::App()
   pipeline_texture = etna::get_context().getPipelineManager().createGraphicsPipeline("local_shadertoy2_textures",
     etna::GraphicsPipeline::CreateInfo {
       .fragmentShaderOutput = {
-        .colorAttachmentFormats = {vk::Format::eB8G8R8A8Srgb}
+        .colorAttachmentFormats = {vkWindow->getCurrentFormat()}
       }
     });
   sampler = etna::Sampler(etna::Sampler::CreateInfo{.name = "You should buy pringles"});
   shader_image = etna::get_context().createImage(etna::Image::CreateInfo {
     .extent = vk::Extent3D{resolution.x, resolution.y, 1},
     .name = "resultImage",
-    .format = vk::Format::eB8G8R8A8Srgb,
+    .format = vkWindow->getCurrentFormat(),
     .imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled,
   });
 }
@@ -139,7 +139,7 @@ void App::load_textures(vk::CommandBuffer& currentCmdBuf)
   texture_image = etna::create_image_from_bytes(etna::Image::CreateInfo {
     .extent = vk::Extent3D{uint32_t(x), uint32_t(y), 1},
     .name = "textureImage",
-    .format = vk::Format::eB8G8R8A8Srgb,
+    .format = vkWindow->getCurrentFormat(),
     .imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled,
   }, currentCmdBuf, texture);
   stbi_image_free(texture);
@@ -194,6 +194,56 @@ void App::drawFrame()
 
         currentCmdBuf.draw(3, 1, 0, 0);
       }
+      
+      vk::ImageMemoryBarrier shader_barrier{
+        .srcAccessMask = vk::AccessFlagBits::eTransferWrite,
+        .dstAccessMask = vk::AccessFlagBits::eTransferRead,
+        .oldLayout = vk::ImageLayout::eTransferDstOptimal,
+        .newLayout = vk::ImageLayout::eTransferSrcOptimal,
+        .image = shader_image.get(),
+        .subresourceRange = {
+          .aspectMask = vk::ImageAspectFlagBits::eColor,
+          .levelCount = 1,
+          .baseArrayLayer = 0,
+          .layerCount = 1,
+        }};
+      
+      vk::ImageMemoryBarrier texture_barrier{
+        .srcAccessMask = vk::AccessFlagBits::eTransferWrite,
+        .dstAccessMask = vk::AccessFlagBits::eTransferRead,
+        .oldLayout = vk::ImageLayout::eTransferDstOptimal,
+        .newLayout = vk::ImageLayout::eTransferSrcOptimal,
+        .image = texture_image.get(),
+        .subresourceRange = {
+          .aspectMask = vk::ImageAspectFlagBits::eColor,
+          .levelCount = 1,
+          .baseArrayLayer = 0,
+          .layerCount = 1,
+        }};
+      
+      currentCmdBuf.pipelineBarrier(
+        vk::PipelineStageFlagBits::eTransfer,
+        vk::PipelineStageFlagBits::eTransfer,
+        vk::DependencyFlagBits::eByRegion,
+        0,
+        nullptr,
+        0,
+        nullptr,
+        1,
+        &shader_barrier);
+      
+      currentCmdBuf.pipelineBarrier(
+        vk::PipelineStageFlagBits::eTransfer,
+        vk::PipelineStageFlagBits::eTransfer,
+        vk::DependencyFlagBits::eByRegion,
+        0,
+        nullptr,
+        0,
+        nullptr,
+        1,
+        &texture_barrier);
+
+      etna::flush_barriers(currentCmdBuf);
 
       etna::set_state(
         currentCmdBuf,
@@ -202,7 +252,6 @@ void App::drawFrame()
         vk::AccessFlagBits2::eColorAttachmentRead,
         vk::ImageLayout::eShaderReadOnlyOptimal,
         vk::ImageAspectFlagBits::eColor);
-      etna::flush_barriers(currentCmdBuf);
 
       etna::set_state(
         currentCmdBuf,
