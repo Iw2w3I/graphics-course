@@ -5,10 +5,12 @@
 #include <etna/RenderTargetStates.hpp>
 #include <etna/Profiling.hpp>
 #include <glm/ext.hpp>
+#include <iostream>
 
 
 WorldRenderer::WorldRenderer()
-  : sceneMgr{std::make_unique<SceneManager>()}
+  : sceneMgr{std::make_unique<SceneManager>()},
+  maxDrawnInstances(4096)
 {
 }
 
@@ -24,11 +26,21 @@ void WorldRenderer::allocateResources(glm::uvec2 swapchain_resolution)
     .format = vk::Format::eD32Sfloat,
     .imageUsage = vk::ImageUsageFlagBits::eDepthStencilAttachment,
   });
+
+  mModels.emplace(
+    ctx.getMainWorkCount(),
+    [&ctx, maxDrawnInstances = maxDrawnInstances](std::size_t i) {
+      return ctx.createBuffer(etna::Buffer::CreateInfo{
+        .size = maxDrawnInstances * sizeof(glm::mat4x4),
+        .bufferUsage = vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eStorageBuffer,
+        .memoryUsage = VMA_MEMORY_USAGE_CPU_TO_GPU,
+        .name = fmt::format("instanceMatrix{}", i)});
+    });
 }
 
 void WorldRenderer::loadScene(std::filesystem::path path)
 {
-  sceneMgr->selectScene(path);
+  sceneMgr->selectBakerScene(path);
 }
 
 void WorldRenderer::loadShaders()
@@ -92,30 +104,52 @@ void WorldRenderer::renderScene(
   cmd_buf.bindVertexBuffers(0, {sceneMgr->getVertexBuffer()}, {0});
   cmd_buf.bindIndexBuffer(sceneMgr->getIndexBuffer(), 0, vk::IndexType::eUint32);
 
-  pushConst2M.projView = glob_tm;
+  auto& mModelsBuffer = mModels->get();
+  mModelsBuffer.map();
+  glm::mat4x4* mModelsVec = std::bit_cast<glm::mat4x4*>(mModelsBuffer.data());
+  std::size_t id = 0;
 
   auto instanceMeshes = sceneMgr->getInstanceMeshes();
   auto instanceMatrices = sceneMgr->getInstanceMatrices();
 
   auto meshes = sceneMgr->getMeshes();
   auto relems = sceneMgr->getRenderElements();
+  auto bounds = sceneMgr->getBounds();
 
-  for (std::size_t instIdx = 0; instIdx < instanceMeshes.size(); ++instIdx)
-  {
-    pushConst2M.model = instanceMatrices[instIdx];
-
-    cmd_buf.pushConstants<PushConstants>(
-      pipeline_layout, vk::ShaderStageFlagBits::eVertex, 0, {pushConst2M});
-
+  for (std::size_t instIdx = 0; instIdx < instanceMeshes.size(); ++instIdx) {
+    auto& mModel = instanceMatrices[instIdx];
     const auto meshIdx = instanceMeshes[instIdx];
-
-    for (std::size_t j = 0; j < meshes[meshIdx].relemCount; ++j)
-    {
+    for (std::size_t j = 0; j < meshes[meshIdx].relemCount; ++j) {
       const auto relemIdx = meshes[meshIdx].firstRelem + j;
       const auto& relem = relems[relemIdx];
-      cmd_buf.drawIndexed(relem.indexCount, 1, relem.indexOffset, relem.vertexOffset, 0);
+      if (!frustumCulled(bounds[meshIdx], glob_tm * mModel)) {
+        mModelsVec[id++] = mModel;
+        ++mModelsCount[relem];
+      }
     }
   }
+
+  mModelsBuffer.unmap();
+
+  auto descriptor_set = etna::create_descriptor_set(
+    etna::get_shader_program("static_mesh_material").getDescriptorLayoutId(0),
+    cmd_buf,
+    {etna::Binding{0, mModelsBuffer.genBinding()}});
+  auto vkSet = descriptor_set.getVkSet();
+  cmd_buf.bindDescriptorSets(
+    vk::PipelineBindPoint::eGraphics, pipeline_layout, 0, 1, &vkSet, 0, nullptr);
+
+  pushConst2M.projView = glob_tm;
+  cmd_buf.pushConstants<PushConstants>(
+      pipeline_layout, vk::ShaderStageFlagBits::eVertex, 0, {pushConst2M});
+
+  uint32_t offset = 0;
+  for (const auto& [relem, count]: mModelsCount) {
+    cmd_buf.drawIndexed(relem.indexCount, count, relem.indexOffset, relem.vertexOffset, offset);
+    offset += count;
+  }
+  mModelsCount.clear();
+  // std::cout << offset << std::endl;
 }
 
 void WorldRenderer::renderWorld(
@@ -136,4 +170,23 @@ void WorldRenderer::renderWorld(
     cmd_buf.bindPipeline(vk::PipelineBindPoint::eGraphics, staticMeshPipeline.getVkPipeline());
     renderScene(cmd_buf, worldViewProj, staticMeshPipeline.getVkPipelineLayout());
   }
+}
+
+bool WorldRenderer::frustumCulled(const std::pair<glm::vec3, glm::vec3> bound, const glm::mat4x4 globalTransform) {
+  float leeway = bound.second.x - bound.first.x +\
+                 bound.second.y - bound.first.y +\
+                 bound.second.z - bound.first.z;
+  for (std::size_t i = 0; i < 8; ++i) {
+    float x = bound.first.x * (i & 1) + bound.second.x * ((i & 1) ^ 1);
+    float y = bound.first.y * (i & 2) + bound.second.y * ((i & 2) ^ 1);
+    float z = bound.first.z * (i & 4) + bound.second.z * ((i & 4) ^ 1);
+    glm::vec4 pos = globalTransform * glm::vec4(x, y, z, 1.0f);
+    bool onScreen = pos.x >= -pos.w - leeway && pos.x <= pos.w + leeway &&
+                    pos.y >= -pos.w - leeway && pos.y <= pos.w + leeway &&
+                    pos.z >= -pos.w - leeway && pos.z <= pos.w + leeway;
+    if (onScreen) {
+      return false;
+    }
+  }
+  return true;
 }

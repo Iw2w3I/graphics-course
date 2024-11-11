@@ -2,7 +2,7 @@
 #extension GL_ARB_separate_shader_objects : enable
 #extension GL_GOOGLE_include_directive : require
 
-#include "unpack_attributes.glsl"
+#include "unpack_attributes_baked.glsl"
 
 
 layout(location = 0) in vec4 vPosNorm;
@@ -11,9 +11,11 @@ layout(location = 1) in vec4 vTexCoordAndTang;
 layout(push_constant) uniform params_t
 {
   mat4 mProjView;
-  mat4 mModel;
 } params;
 
+layout(std140, set = 0, binding = 0) readonly buffer mModels_t {
+  mat4 model[];
+} mModels;
 
 layout (location = 0 ) out VS_OUT
 {
@@ -27,12 +29,13 @@ out gl_PerVertex { vec4 gl_Position; };
 
 void main(void)
 {
-  const vec4 wNorm = vec4(decode_normal(floatBitsToInt(vPosNorm.w)),     0.0f);
-  const vec4 wTang = vec4(decode_normal(floatBitsToInt(vTexCoordAndTang.z)), 0.0f);
+  mat4 mModel = mModels.model[gl_InstanceIndex];
+  const vec4 wNorm = vec4(decode_normal(floatBitsToUint(vPosNorm.w)),     0.0f);
+  const vec4 wTang = vec4(decode_normal(floatBitsToUint(vTexCoordAndTang.z)), 0.0f);
 
-  vOut.wPos   = (params.mModel * vec4(vPosNorm.xyz, 1.0f)).xyz;
-  vOut.wNorm  = normalize(mat3(transpose(inverse(params.mModel))) * wNorm.xyz);
-  vOut.wTangent = normalize(mat3(transpose(inverse(params.mModel))) * wTang.xyz);
+  vOut.wPos   = (mModel * vec4(vPosNorm.xyz, 1.0f)).xyz;
+  vOut.wNorm  = normalize(mat3(transpose(inverse(mModel))) * wNorm.xyz);
+  vOut.wTangent = normalize(mat3(transpose(inverse(mModel))) * wTang.xyz);
   vOut.texCoord = vTexCoordAndTang.xy;
 
   gl_Position   = params.mProjView * vec4(vOut.wPos, 1.0);
