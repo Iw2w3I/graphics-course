@@ -97,7 +97,9 @@ App::App()
         .colorAttachmentFormats = {vkWindow->getCurrentFormat()}
       }
     });
-  sampler = etna::Sampler(etna::Sampler::CreateInfo{.name = "You should buy pringles"});
+  sampler = etna::Sampler(etna::Sampler::CreateInfo{
+    .addressMode = vk::SamplerAddressMode::eMirroredRepeat,
+    .name = "You should buy pringles"});
   shader_image = etna::get_context().createImage(etna::Image::CreateInfo {
     .extent = vk::Extent3D{resolution.x, resolution.y, 1},
     .name = "resultImage",
@@ -175,7 +177,6 @@ void App::drawFrame()
         vk::AccessFlagBits2::eColorAttachmentWrite,
         vk::ImageLayout::eColorAttachmentOptimal,
         vk::ImageAspectFlagBits::eColor);
-      etna::flush_barriers(currentCmdBuf);
 
       etna::set_state(
         currentCmdBuf,
@@ -194,62 +195,12 @@ void App::drawFrame()
 
         currentCmdBuf.draw(3, 1, 0, 0);
       }
-      
-      vk::ImageMemoryBarrier shader_barrier{
-        .srcAccessMask = vk::AccessFlagBits::eTransferWrite,
-        .dstAccessMask = vk::AccessFlagBits::eTransferRead,
-        .oldLayout = vk::ImageLayout::eTransferDstOptimal,
-        .newLayout = vk::ImageLayout::eTransferSrcOptimal,
-        .image = shader_image.get(),
-        .subresourceRange = {
-          .aspectMask = vk::ImageAspectFlagBits::eColor,
-          .levelCount = 1,
-          .baseArrayLayer = 0,
-          .layerCount = 1,
-        }};
-      
-      vk::ImageMemoryBarrier texture_barrier{
-        .srcAccessMask = vk::AccessFlagBits::eTransferWrite,
-        .dstAccessMask = vk::AccessFlagBits::eTransferRead,
-        .oldLayout = vk::ImageLayout::eTransferDstOptimal,
-        .newLayout = vk::ImageLayout::eTransferSrcOptimal,
-        .image = texture_image.get(),
-        .subresourceRange = {
-          .aspectMask = vk::ImageAspectFlagBits::eColor,
-          .levelCount = 1,
-          .baseArrayLayer = 0,
-          .layerCount = 1,
-        }};
-      
-      currentCmdBuf.pipelineBarrier(
-        vk::PipelineStageFlagBits::eTransfer,
-        vk::PipelineStageFlagBits::eTransfer,
-        vk::DependencyFlagBits::eByRegion,
-        0,
-        nullptr,
-        0,
-        nullptr,
-        1,
-        &shader_barrier);
-      
-      currentCmdBuf.pipelineBarrier(
-        vk::PipelineStageFlagBits::eTransfer,
-        vk::PipelineStageFlagBits::eTransfer,
-        vk::DependencyFlagBits::eByRegion,
-        0,
-        nullptr,
-        0,
-        nullptr,
-        1,
-        &texture_barrier);
-
-      etna::flush_barriers(currentCmdBuf);
 
       etna::set_state(
         currentCmdBuf,
         shader_image.get(),
         vk::PipelineStageFlagBits2::eFragmentShader,
-        vk::AccessFlagBits2::eColorAttachmentRead,
+        vk::AccessFlagBits2::eShaderRead,
         vk::ImageLayout::eShaderReadOnlyOptimal,
         vk::ImageAspectFlagBits::eColor);
 
@@ -257,7 +208,7 @@ void App::drawFrame()
         currentCmdBuf,
         texture_image.get(),
         vk::PipelineStageFlagBits2::eFragmentShader,
-        vk::AccessFlagBits2::eColorAttachmentRead,
+        vk::AccessFlagBits2::eShaderRead,
         vk::ImageLayout::eShaderReadOnlyOptimal,
         vk::ImageAspectFlagBits::eColor);
       etna::flush_barriers(currentCmdBuf);
@@ -282,7 +233,7 @@ void App::drawFrame()
           mouse_pos = osWindow.get()->mouse.freePos;
         }
         params.mouse_pos = mouse_pos;
-        params.time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - init_time).count() / 1000.0;
+        params.time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - init_time).count() / 1000.0f;
         currentCmdBuf.pushConstants(
           pipeline.getVkPipelineLayout(),
           vk::ShaderStageFlagBits::eFragment,
