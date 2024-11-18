@@ -35,7 +35,9 @@ private:
   std::unique_ptr<etna::PerFrameCmdMgr> commandManager;
 
   UniformParams uniformParams;
-  std::optional<etna::GpuSharedResource<etna::Buffer>> gpuSharedResource = std::nullopt;
+  static const uint32_t numFramesInFlight = 3;
+  std::array<std::optional<etna::GpuSharedResource<etna::Buffer>>, numFramesInFlight> gpuSharedResource;
+  uint32_t frameCount = 0;
 
   etna::GraphicsPipeline pipeline;
   etna::GraphicsPipeline pipeline_texture;

@@ -148,9 +148,10 @@ void main()
       vec3 texNorm = abs(n);
       texNorm /= (texNorm.x + texNorm.y + texNorm.z);
       vec3 tex = texture(texture_image, cP.xy).rgb * texNorm.z;
-      tex += texture(texture_image, cP.xz).rgb * texNorm.y;
-      tex += texture(texture_image, cP.yz).rgb * texNorm.x;
       tex *= brightness;
+      if (cP.x < 0.0) {
+        tex = vec3(1.5);
+      }
       
       color = tex * (nl + blick) / 2.0;
   }

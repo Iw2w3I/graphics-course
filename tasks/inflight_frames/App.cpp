@@ -44,7 +44,7 @@ App::App()
       .deviceExtensions = deviceExtensions,
       // Replace with an index if etna detects your preferred GPU incorrectly
       .physicalDeviceIndexOverride = {},
-      .numFramesInFlight = 3,
+      .numFramesInFlight = numFramesInFlight,
     });
   }
 
@@ -101,20 +101,26 @@ App::App()
         .colorAttachmentFormats = {vk::Format::eB8G8R8A8Srgb}
       }
     });
-  sampler = etna::Sampler(etna::Sampler::CreateInfo{.name = "You should buy pringles"});
+  sampler = etna::Sampler(etna::Sampler::CreateInfo{
+    .addressMode = vk::SamplerAddressMode::eMirroredRepeat,
+    .name = "You should buy pringles"});
   shader_image = etna::get_context().createImage(etna::Image::CreateInfo {
     .extent = vk::Extent3D{resolution.x, resolution.y, 1},
     .name = "resultImage",
     .format = vk::Format::eB8G8R8A8Srgb,
     .imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled,
   });
-  gpuSharedResource.emplace(etna::get_context().getMainWorkCount(), [](std::size_t i) {
-    return etna::get_context().createBuffer(etna::Buffer::CreateInfo{
-      .size = sizeof(UniformParams),
-      .bufferUsage = vk::BufferUsageFlagBits::eUniformBuffer,
-      .memoryUsage = VMA_MEMORY_USAGE_CPU_ONLY,
-      .name = fmt::format("params_buffer{}", i)});
-  });
+  for (uint32_t j = 0; j < numFramesInFlight; ++j) {
+    gpuSharedResource[j].emplace(etna::get_context().getMainWorkCount(), [](std::size_t i) {
+      return etna::get_context().createBuffer(etna::Buffer::CreateInfo{
+        .size = sizeof(UniformParams),
+        .bufferUsage = vk::BufferUsageFlagBits::eUniformBuffer,
+        .memoryUsage = VMA_MEMORY_USAGE_CPU_ONLY,
+        .name = fmt::format("params_buffer{}", i)});
+    });
+  }
+  uniformParams.iMouse_x = resolution.x / 2.0f;
+  uniformParams.iMouse_y = resolution.y / 2.0f;
 }
 
 App::~App()
@@ -129,6 +135,8 @@ void App::run()
     windowing.poll();
 
     drawFrame();
+
+    ++frameCount;
     
     FrameMark;
   }
@@ -183,14 +191,13 @@ void App::drawFrame()
     {
       ETNA_PROFILE_GPU(currentCmdBuf, "Frame start");
 
-      etna::set_state(
+       etna::set_state(
         currentCmdBuf,
         backbuffer,
         vk::PipelineStageFlagBits2::eColorAttachmentOutput,
         vk::AccessFlagBits2::eColorAttachmentWrite,
         vk::ImageLayout::eColorAttachmentOptimal,
         vk::ImageAspectFlagBits::eColor);
-      etna::flush_barriers(currentCmdBuf);
 
       etna::set_state(
         currentCmdBuf,
@@ -215,16 +222,15 @@ void App::drawFrame()
         currentCmdBuf,
         shader_image.get(),
         vk::PipelineStageFlagBits2::eFragmentShader,
-        vk::AccessFlagBits2::eColorAttachmentRead,
+        vk::AccessFlagBits2::eShaderRead,
         vk::ImageLayout::eShaderReadOnlyOptimal,
         vk::ImageAspectFlagBits::eColor);
-      etna::flush_barriers(currentCmdBuf);
 
       etna::set_state(
         currentCmdBuf,
         texture_image.get(),
         vk::PipelineStageFlagBits2::eFragmentShader,
-        vk::AccessFlagBits2::eColorAttachmentRead,
+        vk::AccessFlagBits2::eShaderRead,
         vk::ImageLayout::eShaderReadOnlyOptimal,
         vk::ImageAspectFlagBits::eColor);
       etna::flush_barriers(currentCmdBuf);
@@ -233,16 +239,16 @@ void App::drawFrame()
         ETNA_PROFILE_GPU(currentCmdBuf, "Making main shader");
         etna::RenderTargetState state{currentCmdBuf, {{}, {resolution.x, resolution.y}}, {{backbuffer, backbufferView}}, {}};
 
-        etna::Buffer& param_buffer = gpuSharedResource->get();
-        param_buffer.map();
         uniformParams.iResolution_x = resolution.x;
         uniformParams.iResolution_y = resolution.y;
         if (osWindow.get()->mouse[MouseButton::mbLeft] == ButtonState::High) {
           mouse_pos = osWindow.get()->mouse.freePos;
+          uniformParams.iMouse_x = mouse_pos.x;
+          uniformParams.iMouse_y = mouse_pos.y;
         }
-        uniformParams.iMouse_x = mouse_pos.x;
-        uniformParams.iMouse_y = mouse_pos.y;
-        uniformParams.iTime = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - init_time).count() / 1000.0;
+        uniformParams.iTime = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - init_time).count() / 1000.0f;
+        etna::Buffer& param_buffer = gpuSharedResource[frameCount % numFramesInFlight]->get();
+        param_buffer.map();
         std::memcpy(param_buffer.data(), &uniformParams, sizeof(uniformParams));
         param_buffer.unmap();
 
@@ -258,14 +264,6 @@ void App::drawFrame()
 
         currentCmdBuf.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline.getVkPipeline());
         currentCmdBuf.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipeline.getVkPipelineLayout(), 0, 1, &vkSet, 0, nullptr);
-
-        currentCmdBuf.pushConstants(
-          pipeline.getVkPipelineLayout(),
-          vk::ShaderStageFlagBits::eFragment,
-          0,
-          sizeof(UniformParams),
-          &uniformParams
-        );
 
         currentCmdBuf.draw(3, 1, 0, 0);
       }
