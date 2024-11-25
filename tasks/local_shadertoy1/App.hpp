@@ -17,6 +17,7 @@ public:
   ~App();
 
   void run();
+  void processInput();
 
 private:
   void drawFrame();

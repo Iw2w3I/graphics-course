@@ -82,7 +82,7 @@ App::App()
   shader_image = etna::get_context().createImage(etna::Image::CreateInfo{
     .extent = vk::Extent3D{resolution.x, resolution.y, 1},
     .name = "resultImage",
-    .format = vk::Format::eR8G8B8A8Snorm,
+    .format = vk::Format::eR8G8B8A8Unorm,
     .imageUsage = vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc,
   });
 }
@@ -98,6 +98,7 @@ void App::run()
   {
     windowing.poll();
 
+    processInput();
     drawFrame();
   }
 
@@ -145,9 +146,17 @@ void App::drawFrame()
       // As with set_state, Etna sometimes flushes on it's own.
       // Usually, flushes should be placed before "action", i.e. compute dispatches
       // and blit/copy operations.
-      etna::flush_barriers(currentCmdBuf);
 
       // My commands:
+      etna::set_state(
+        currentCmdBuf,
+        shader_image.get(),
+        vk::PipelineStageFlagBits2::eComputeShader,
+        vk::AccessFlagBits2::eShaderWrite,
+        vk::ImageLayout::eGeneral,
+        vk::ImageAspectFlagBits::eColor);
+      etna::flush_barriers(currentCmdBuf);
+
       auto set = etna::create_descriptor_set(
         etna::get_shader_program("local_shadertoy1").getDescriptorLayoutId(0),
         currentCmdBuf,
@@ -159,12 +168,6 @@ void App::drawFrame()
       currentCmdBuf.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline.getVkPipeline());
       currentCmdBuf.bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipeline.getVkPipelineLayout(), 0, 1, &vkSet, 0, nullptr);
 
-      params.resolution = resolution;
-      if (osWindow.get()->mouse[MouseButton::mbLeft] == ButtonState::High) {
-        mouse_pos = osWindow.get()->mouse.freePos;
-      }
-      params.mouse_pos = mouse_pos;
-      params.time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - init_time).count() / 1000.0;
       currentCmdBuf.pushConstants(
         pipeline.getVkPipelineLayout(),
         vk::ShaderStageFlagBits::eCompute,
@@ -182,39 +185,56 @@ void App::drawFrame()
         vk::ImageAspectFlagBits::eColor);
       etna::flush_barriers(currentCmdBuf);
 
-      currentCmdBuf.dispatch(resolution.x / 32, resolution.y / 32, 1);
+      currentCmdBuf.dispatch((resolution.x + 31) / 32, (resolution.y + 31) / 32, 1);
 
       etna::set_state(
         currentCmdBuf,
         shader_image.get(),
         vk::PipelineStageFlagBits2::eTransfer,
-        vk::AccessFlagBits2::eTransferWrite,
-        vk::ImageLayout::eTransferDstOptimal,
+        vk::AccessFlagBits2::eTransferRead,
+        vk::ImageLayout::eTransferSrcOptimal,
         vk::ImageAspectFlagBits::eColor);
       etna::flush_barriers(currentCmdBuf);
+      
+      std::array srcOffset = {
+          vk::Offset3D{},
+          vk::Offset3D{static_cast<int32_t>(resolution.x), static_cast<int32_t>(resolution.y), 1}
+      };
+      std::array dstOffset = {
+        vk::Offset3D{},
+        vk::Offset3D{static_cast<int32_t>(resolution.x), static_cast<int32_t>(resolution.y), 1}
+      };
+      
+      auto srcImageSubrecourceLayers = vk::ImageSubresourceLayers{
+        .aspectMask = vk::ImageAspectFlagBits::eColor,
+        .mipLevel = 0,
+        .baseArrayLayer = 0,
+        .layerCount = 1};
+      auto dstImageSubrecourceLayers = vk::ImageSubresourceLayers{
+        .aspectMask = vk::ImageAspectFlagBits::eColor,
+        .mipLevel = 0,
+        .baseArrayLayer = 0,
+        .layerCount = 1};
 
-      VkImageBlit imageBlit{};				
-      imageBlit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-      imageBlit.srcSubresource.layerCount = 1;
-      imageBlit.srcOffsets[1].x = resolution.x;
-      imageBlit.srcOffsets[1].y = resolution.y;
-      imageBlit.srcOffsets[1].z = 1;
-      imageBlit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-      imageBlit.dstSubresource.layerCount = 1;
-      imageBlit.dstOffsets[1].x = resolution.x;
-      imageBlit.dstOffsets[1].y = resolution.y;
-      imageBlit.dstOffsets[1].z = 1;
-
-      vkCmdBlitImage(
-        currentCmdBuf,
-        shader_image.get(),
-        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        backbuffer,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        1,
-        &imageBlit,
-        VK_FILTER_LINEAR);
-      etna::flush_barriers(currentCmdBuf);
+      auto pRegions = vk::ImageBlit2{
+        .sType = vk::StructureType::eImageBlit2,
+        .pNext = nullptr,
+        .srcSubresource = srcImageSubrecourceLayers,
+        .srcOffsets = srcOffset,
+        .dstSubresource = dstImageSubrecourceLayers,
+        .dstOffsets = dstOffset
+      };
+      currentCmdBuf.blitImage2(vk::BlitImageInfo2{
+        .sType = vk::StructureType::eBlitImageInfo2,
+        .pNext = nullptr,
+        .srcImage = shader_image.get(),
+        .srcImageLayout = vk::ImageLayout::eTransferSrcOptimal,
+        .dstImage = backbuffer,
+        .dstImageLayout = vk::ImageLayout::eTransferDstOptimal,
+        .regionCount = 1,
+        .pRegions = &pRegions,
+        .filter = vk::Filter::eLinear
+      });
 
       // At the end of "rendering", we are required to change how the pixels of the
       // swpchain image are laid out in memory to something that is appropriate
@@ -257,4 +277,14 @@ void App::drawFrame()
     });
     ETNA_VERIFY((resolution == glm::uvec2{w, h}));
   }
+}
+
+void App::processInput()
+{
+  params.resolution = resolution;
+  if (osWindow.get()->mouse[MouseButton::mbLeft] == ButtonState::High) {
+    mouse_pos = osWindow.get()->mouse.freePos;
+  }
+  params.mouse_pos = mouse_pos;
+  params.time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - init_time).count() / 1000.0;
 }

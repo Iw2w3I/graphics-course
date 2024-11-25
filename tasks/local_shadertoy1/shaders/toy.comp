@@ -56,9 +56,9 @@ float dFig(vec3 p, vec3 center, float size, float spikes, float sharpness) {
     float x = (p - center).x;
     float y = (p - center).y;
     float z = (p - center).z;
-    float alpha = asin(x / sqrt(x * x + z * z));
-    float beta = asin(y / sqrt(x * x + y * y));
-    float gamma = asin(z / sqrt(y * y + z * z));
+    float alpha = asin(abs(x) / sqrt(x * x + z * z));
+    float beta = asin(abs(y) / sqrt(x * x + y * y));
+    float gamma = asin(abs(z) / sqrt(y * y + z * z));
     float spikeA = pow(sin(alpha * spikes), sharpness);
     float spikeB = pow(sin(beta * spikes), sharpness);
     float spikeC = pow(sin(gamma * spikes), sharpness);
