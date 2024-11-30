@@ -35,6 +35,7 @@ public:
   SceneManager();
 
   void selectScene(std::filesystem::path path);
+  void selectBakerScene(std::filesystem::path path);
 
   // Every instance is a mesh drawn with a certain transform
   // NOTE: maybe you can pass some additional data through unused matrix entries?
@@ -81,6 +82,7 @@ private:
     std::vector<Mesh> meshes;
   };
   ProcessedMeshes processMeshes(const tinygltf::Model& model) const;
+  ProcessedMeshes bakeMeshes(const tinygltf::Model& model) const;
   void uploadData(std::span<const Vertex> vertices, std::span<const std::uint32_t>);
 
 private:
