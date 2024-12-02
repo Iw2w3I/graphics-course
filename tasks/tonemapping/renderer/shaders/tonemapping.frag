@@ -20,7 +20,7 @@ layout(binding = 1) readonly buffer d_t
 void main(void)
 {
   vec4 color = texture(image, surf.texCoord);
-  float brightness = clamp(max(color.r, max(color.g, color.b)), 0., 1.);
-  out_fragColor = vec4(hist.density[int(127. * brightness)] / brightness * color.rgb, 1.);
-  out_fragColor = vec4(color.rgb, 1.);
+  float brightness = clamp(max(color.r, max(color.g, color.b)) + 0.25, 0.0, 1.0);
+  float dense = hist.density[int(127. * brightness)] / brightness;
+  out_fragColor = vec4(color.rgb * exp(dense), 1.0);
 }

@@ -16,5 +16,4 @@ target_add_shaders(tonemapping_renderer
   shaders/postprocess.comp
   shaders/tonemapping.frag
   shaders/tonemapping.vert
-  shaders/texture.frag
 )

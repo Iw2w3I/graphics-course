@@ -15,8 +15,8 @@ void main()
     ivec2 texCoord = ivec2(gl_GlobalInvocationID.xy);
     if (texCoord.x < size.x && texCoord.y < size.y) {   
         vec4 color = imageLoad(image, texCoord);
-        float brightness = clamp(max(max(color.r, color.g), color.b), 0., 1.);
-        for (int i = int(127. * brightness); i < 128; ++i) {
+        float brightness = clamp(max(max(color.r, color.g), color.b), 0.0, 1.0);
+        for (int i = int(127.0 * brightness); i < 128; ++i) {
             atomicAdd(postprocess.prefsum[i], 1);
         }
     }

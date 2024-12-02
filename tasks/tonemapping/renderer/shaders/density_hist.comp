@@ -14,6 +14,12 @@ layout(binding = 1) buffer b
 } hist;
 
 void main() {
-    hist.density[gl_GlobalInvocationID.x] = float(postprocess.prefsum[gl_GlobalInvocationID.x]) / float(postprocess.prefsum[127]);
-    postprocess.prefsum[gl_GlobalInvocationID.x] = 0;
+    if (gl_GlobalInvocationID.x != 127) {
+        hist.density[gl_GlobalInvocationID.x] = float(postprocess.prefsum[gl_GlobalInvocationID.x]) / (float(postprocess.prefsum[127]) + 0.01);
+        postprocess.prefsum[gl_GlobalInvocationID.x] = 0;
+    } else {
+        hist.density[127] = 1.0;
+        memoryBarrierBuffer();
+        postprocess.prefsum[127] = 0;
+    }
 }
