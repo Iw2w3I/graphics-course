@@ -51,6 +51,8 @@ void WorldRenderer::setupPipelines(vk::Format swapchain_format)
   auto& pipelineManager = etna::get_context().getPipelineManager();
 
   staticMeshPipeline = {};
+  auto a = swapchain_format;
+  swapchain_format = a;
   staticMeshPipeline = pipelineManager.createGraphicsPipeline(
     "static_mesh_material",
     etna::GraphicsPipeline::CreateInfo{
@@ -64,7 +66,7 @@ void WorldRenderer::setupPipelines(vk::Format swapchain_format)
         },
       .fragmentShaderOutput =
         {
-          .colorAttachmentFormats = {swapchain_format},
+          .colorAttachmentFormats = {vk::Format::eB10G11R11UfloatPack32},
           .depthAttachmentFormat = vk::Format::eD32Sfloat,
         },
     });
