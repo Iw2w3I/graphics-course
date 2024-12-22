@@ -1,0 +1,23 @@
+#version 430
+
+layout(local_size_x = 32, local_size_y = 32) in;
+
+layout(binding = 0, r11f_g11f_b10f) uniform image2D image;
+
+layout(binding = 1) buffer h_t
+{
+    int prefsum[1024];
+} postprocess;
+
+void main()
+{
+    ivec2 size = imageSize(image);
+    ivec2 texCoord = ivec2(gl_GlobalInvocationID.xy);
+    if (texCoord.x < size.x && texCoord.y < size.y) {   
+        vec4 color = imageLoad(image, texCoord);
+        float brightness = clamp(max(max(color.r, color.g), color.b), 0.0, 1.0);
+        for (int i = int(1023.0 * brightness); i < 1024; ++i) {
+            atomicAdd(postprocess.prefsum[i], 1);
+        }
+    }
+}
