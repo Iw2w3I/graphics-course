@@ -1,25 +1,17 @@
 #version 430
 
-layout(local_size_x = 128) in;
+layout(local_size_x = 1024) in;
 
 layout(binding = 0) buffer h_t
 {
-    int prefsum[128];
+    int prefsum[1024];
 } postprocess;
-
 
 layout(binding = 1) buffer b
 {
-    float density[128];
+    float density[1024];
 } hist;
 
 void main() {
-    if (gl_GlobalInvocationID.x != 127) {
-        hist.density[gl_GlobalInvocationID.x] = float(postprocess.prefsum[gl_GlobalInvocationID.x]) / (float(postprocess.prefsum[127]) + 0.01);
-        postprocess.prefsum[gl_GlobalInvocationID.x] = 0;
-    } else {
-        hist.density[127] = 1.0;
-        memoryBarrierBuffer();
-        postprocess.prefsum[127] = 0;
-    }
+    hist.density[gl_GlobalInvocationID.x] = float(postprocess.prefsum[gl_GlobalInvocationID.x]) / (float(postprocess.prefsum[1023]) + 0.01);
 }

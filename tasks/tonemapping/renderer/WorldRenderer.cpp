@@ -33,14 +33,14 @@ void WorldRenderer::allocateResources(glm::uvec2 swapchain_resolution)
   });
 
   prefsum = ctx.createBuffer({
-    .size = 128 * sizeof(int),
-    .bufferUsage = vk::BufferUsageFlagBits::eStorageBuffer,
+    .size = 1024 * sizeof(int),
+    .bufferUsage = vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst,
     .memoryUsage = VMA_MEMORY_USAGE_GPU_ONLY,
     .name = "prefsum",
   });
 
   density = ctx.createBuffer({
-    .size = 128 * sizeof(float),
+    .size = 1024 * sizeof(float),
     .bufferUsage = vk::BufferUsageFlagBits::eStorageBuffer,
     .memoryUsage = VMA_MEMORY_USAGE_GPU_ONLY,
     .name = "density",
@@ -95,8 +95,8 @@ void WorldRenderer::setupPipelines(vk::Format swapchain_format)
           .depthAttachmentFormat = vk::Format::eD32Sfloat,
         },
     });
-  densityHistPipeline = pipelineManager.createComputePipeline("density_hist", {});
   postprocessPipeline = pipelineManager.createComputePipeline("postprocess", {});
+  densityHistPipeline = pipelineManager.createComputePipeline("density_hist", {});
   tonemappingPipeline = pipelineManager.createGraphicsPipeline(
     "tonemapping",
     etna::GraphicsPipeline::CreateInfo{
@@ -166,17 +166,20 @@ void WorldRenderer::renderWorld(
   ETNA_PROFILE_GPU(cmd_buf, renderWorld);
 
   // draw final scene to screen
+  
   {
     ETNA_PROFILE_GPU(cmd_buf, renderForward);
-    {
-      etna::set_state(
-        cmd_buf,
-        backbuffer.get(),
-        vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-        vk::AccessFlagBits2::eColorAttachmentWrite,
-        vk::ImageLayout::eColorAttachmentOptimal,
-        vk::ImageAspectFlagBits::eColor);
 
+    etna::set_state(
+      cmd_buf,
+      backbuffer.get(),
+      vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+      vk::AccessFlagBits2::eColorAttachmentWrite,
+      vk::ImageLayout::eColorAttachmentOptimal,
+      vk::ImageAspectFlagBits::eColor);
+    etna::flush_barriers(cmd_buf);
+
+    {
       etna::RenderTargetState renderTargets(
         cmd_buf,
         {{0, 0}, {resolution.x, resolution.y}},
@@ -186,6 +189,7 @@ void WorldRenderer::renderWorld(
       cmd_buf.bindPipeline(vk::PipelineBindPoint::eGraphics, staticMeshPipeline.getVkPipeline());
       renderScene(cmd_buf, worldViewProj, staticMeshPipeline.getVkPipelineLayout());
     }
+
     postprocess(cmd_buf, target_image, target_image_view);
   }
 }
@@ -202,26 +206,20 @@ void WorldRenderer::postprocess(vk::CommandBuffer cmd_buf, vk::Image target_imag
       vk::ImageAspectFlagBits::eColor
     );
 
-    std::array<vk::BufferMemoryBarrier2, 2> bufferMemoryBarriers = {
+    cmd_buf.fillBuffer(prefsum.get(), 0, vk::WholeSize, 0);
+
+    std::array<vk::BufferMemoryBarrier2, 1> bufferMemoryBarriers = {
     vk::BufferMemoryBarrier2{
-      .srcStageMask = vk::PipelineStageFlagBits2::eComputeShader,
-      .srcAccessMask = vk::AccessFlagBits2::eShaderStorageWrite | vk::AccessFlagBits2::eShaderStorageRead,
+      .srcStageMask = vk::PipelineStageFlagBits2::eTransfer,
+      .srcAccessMask = vk::AccessFlagBits2::eTransferWrite,
       .dstStageMask = vk::PipelineStageFlagBits2::eComputeShader,
-      .dstAccessMask = vk::AccessFlagBits2::eShaderStorageWrite,
+      .dstAccessMask = vk::AccessFlagBits2::eShaderStorageWrite | vk::AccessFlagBits2::eShaderStorageRead,
       .buffer = prefsum.get(),
-      .size = VK_WHOLE_SIZE,
-     },
-     vk::BufferMemoryBarrier2{
-      .srcStageMask = vk::PipelineStageFlagBits2::eFragmentShader,
-      .srcAccessMask = vk::AccessFlagBits2::eShaderStorageRead,
-      .dstStageMask = vk::PipelineStageFlagBits2::eComputeShader,
-      .dstAccessMask = vk::AccessFlagBits2::eShaderStorageWrite,
-      .buffer = density.get(),
       .size = VK_WHOLE_SIZE,
      }};
     vk::DependencyInfo depInfo {
       .dependencyFlags = vk::DependencyFlagBits::eByRegion,
-      .bufferMemoryBarrierCount=2,
+      .bufferMemoryBarrierCount = 1,
       .pBufferMemoryBarriers = bufferMemoryBarriers.data(),
     };
     cmd_buf.pipelineBarrier2(depInfo);
@@ -234,7 +232,7 @@ void WorldRenderer::postprocess(vk::CommandBuffer cmd_buf, vk::Image target_imag
         cmd_buf,
         {
           etna::Binding{0, backbuffer.genBinding(sampler.get(), vk::ImageLayout::eGeneral)},
-          etna::Binding{1, density.genBinding()}
+          etna::Binding{1, prefsum.genBinding()}
         });
       vk::DescriptorSet vkSet = set.getVkSet();
       cmd_buf.bindPipeline(vk::PipelineBindPoint::eCompute, postprocessPipeline.getVkPipeline());
@@ -243,9 +241,31 @@ void WorldRenderer::postprocess(vk::CommandBuffer cmd_buf, vk::Image target_imag
       cmd_buf.dispatch((resolution.x + 31) / 32, (resolution.y + 31) / 32, 1);
     }
 
-    bufferMemoryBarriers[1].srcStageMask = vk::PipelineStageFlagBits2::eComputeShader;
-    depInfo.pBufferMemoryBarriers = bufferMemoryBarriers.data();
-    cmd_buf.pipelineBarrier2(depInfo);
+    std::array<vk::BufferMemoryBarrier2, 2> bufferMemoryBarriers2 = {
+    vk::BufferMemoryBarrier2{
+      .srcStageMask = vk::PipelineStageFlagBits2::eComputeShader,
+      .srcAccessMask = vk::AccessFlagBits2::eShaderStorageWrite | vk::AccessFlagBits2::eShaderStorageRead,
+      .dstStageMask = vk::PipelineStageFlagBits2::eComputeShader,
+      .dstAccessMask = vk::AccessFlagBits2::eShaderStorageRead,
+      .buffer = prefsum.get(),
+      .size = VK_WHOLE_SIZE,
+     },
+     vk::BufferMemoryBarrier2{
+      .srcStageMask = vk::PipelineStageFlagBits2::eFragmentShader,
+      .srcAccessMask = vk::AccessFlagBits2::eShaderStorageRead,
+      .dstStageMask = vk::PipelineStageFlagBits2::eComputeShader,
+      .dstAccessMask = vk::AccessFlagBits2::eShaderStorageWrite,
+      .buffer = density.get(),
+      .size = VK_WHOLE_SIZE,
+     }};
+    vk::DependencyInfo depInfo2 {
+      .dependencyFlags = vk::DependencyFlagBits::eByRegion,
+      .bufferMemoryBarrierCount = 2,
+      .pBufferMemoryBarriers = bufferMemoryBarriers2.data(),
+    };
+    cmd_buf.pipelineBarrier2(depInfo2);
+
+    etna::flush_barriers(cmd_buf);
 
     {
       auto set = etna::create_descriptor_set(
@@ -262,14 +282,6 @@ void WorldRenderer::postprocess(vk::CommandBuffer cmd_buf, vk::Image target_imag
       cmd_buf.dispatch(1, 1, 1);
     }
 
-    bufferMemoryBarriers[0].srcAccessMask = vk::AccessFlagBits2::eShaderStorageWrite;
-    bufferMemoryBarriers[0].dstAccessMask = vk::AccessFlagBits2::eShaderStorageWrite | vk::AccessFlagBits2::eShaderStorageRead;
-    bufferMemoryBarriers[1].srcAccessMask = vk::AccessFlagBits2::eShaderStorageWrite;
-    bufferMemoryBarriers[1].dstAccessMask = vk::AccessFlagBits2::eShaderStorageRead;
-    bufferMemoryBarriers[1].dstStageMask = vk::PipelineStageFlagBits2::eFragmentShader;
-    depInfo.pBufferMemoryBarriers = bufferMemoryBarriers.data();
-    cmd_buf.pipelineBarrier2(depInfo);
-
     etna::set_state(
       cmd_buf,
       backbuffer.get(),
@@ -278,14 +290,26 @@ void WorldRenderer::postprocess(vk::CommandBuffer cmd_buf, vk::Image target_imag
       vk::ImageLayout::eShaderReadOnlyOptimal, 
       vk::ImageAspectFlagBits::eColor
     );
+
+    bufferMemoryBarriers2[0].srcAccessMask = vk::AccessFlagBits2::eShaderStorageRead;
+    bufferMemoryBarriers2[0].dstAccessMask = vk::AccessFlagBits2::eTransferWrite;
+    bufferMemoryBarriers2[0].srcStageMask = vk::PipelineStageFlagBits2::eComputeShader;
+    bufferMemoryBarriers2[0].dstStageMask = vk::PipelineStageFlagBits2::eTransfer;
+    bufferMemoryBarriers2[1].srcAccessMask = vk::AccessFlagBits2::eShaderStorageWrite;
+    bufferMemoryBarriers2[1].dstAccessMask = vk::AccessFlagBits2::eShaderStorageRead;
+    bufferMemoryBarriers2[1].srcStageMask = vk::PipelineStageFlagBits2::eComputeShader;
+    bufferMemoryBarriers2[1].dstStageMask = vk::PipelineStageFlagBits2::eFragmentShader;
+    depInfo.pBufferMemoryBarriers = bufferMemoryBarriers2.data();
+    cmd_buf.pipelineBarrier2(depInfo2);
+
     etna::flush_barriers(cmd_buf);
 
-    etna::RenderTargetState renderTargets(
-      cmd_buf,
-      {{0, 0}, {resolution.x, resolution.y}},
-      {{.image = target_image, .view = target_image_view}}, {});
-
     {
+      etna::RenderTargetState renderTargets(
+        cmd_buf,
+        {{0, 0}, {resolution.x, resolution.y}},
+        {{.image = target_image, .view = target_image_view}}, {});
+
       auto set = etna::create_descriptor_set(
         etna::get_shader_program("tonemapping").getDescriptorLayoutId(0),
         cmd_buf,

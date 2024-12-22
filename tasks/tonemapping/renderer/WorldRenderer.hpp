@@ -57,8 +57,8 @@ private:
   etna::Sampler sampler;
 
   etna::GraphicsPipeline staticMeshPipeline{};
-  etna::ComputePipeline densityHistPipeline{};
   etna::ComputePipeline postprocessPipeline{};
+  etna::ComputePipeline densityHistPipeline{};
   etna::GraphicsPipeline tonemappingPipeline{};
 
   glm::uvec2 resolution;
